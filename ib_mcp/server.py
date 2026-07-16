@@ -9,6 +9,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import math
+import time
 from typing import Annotated, Any
 
 import defusedxml.ElementTree as ET
@@ -81,9 +82,7 @@ def _format_positions_markdown(positions: list[Any], account: str = "") -> str:
                 _format_position_value(getattr(contract, "secType", "")),
                 _format_position_value(getattr(p, "position", "")),
                 _format_avg_cost(getattr(p, "avgCost", "")),
-                _format_position_value(
-                    getattr(contract, "lastTradeDateOrContractMonth", "")
-                ),
+                _format_position_value(getattr(contract, "lastTradeDateOrContractMonth", "")),
                 _format_position_value(getattr(contract, "strike", "")),
                 _format_position_value(getattr(contract, "right", "")),
                 _format_position_value(getattr(contract, "multiplier", "")),
@@ -193,15 +192,13 @@ def _format_option_chain_markdown(
         filtered = [
             s
             for s in strikes
-            if (min_strike <= 0 or s >= min_strike)
-            and (max_strike <= 0 or s <= max_strike)
+            if (min_strike <= 0 or s >= min_strike) and (max_strike <= 0 or s <= max_strike)
         ]
         total = len(filtered)
         window = filtered[strike_offset : strike_offset + max_strikes]
 
         out.append(
-            f"## Trading Class {tclass} "
-            f"(exchanges: {', '.join(exchanges)}, multiplier {mult})"
+            f"## Trading Class {tclass} (exchanges: {', '.join(exchanges)}, multiplier {mult})"
         )
         out.append("")
         out.append(f"**Expirations ({len(expirations)})**: {', '.join(expirations)}")
@@ -319,9 +316,7 @@ def _format_option_quotes_markdown(
     return "\n".join(lines)
 
 
-def _format_index_quote_markdown(
-    symbol: str, ticker: object, use_delayed: bool = True
-) -> str:
+def _format_index_quote_markdown(symbol: str, ticker: object, use_delayed: bool = True) -> str:
     """Render an index spot quote (bid/ask blank when IB reports the -1 sentinel)."""
     if ticker is None:
         return f"No quote found for index {symbol}"
@@ -412,9 +407,7 @@ class IBMCPServer:
                 logger.info("News providers retrieved: %s", self.news_provider_codes)
             except Exception as e:  # pragma: no cover - relies on external service
                 logger.error("Failed to connect to IB: %s", e)
-                raise ConnectionError(
-                    f"Cannot connect to Interactive Brokers: {e}"
-                ) from e
+                raise ConnectionError(f"Cannot connect to Interactive Brokers: {e}") from e
 
         def _create_contract(
             symbol: str,
@@ -477,10 +470,7 @@ class IBMCPServer:
                 deadline = loop.time() + settle
                 while loop.time() < deadline:
                     await asyncio.sleep(0.25)
-                    if all(
-                        _ticker_ready(t, s)
-                        for t, s in zip(tickers, stamps, strict=True)
-                    ):
+                    if all(_ticker_ready(t, s) for t, s in zip(tickers, stamps, strict=True)):
                         break
             finally:
                 for c in contracts[: len(tickers)]:
@@ -506,7 +496,7 @@ class IBMCPServer:
                 return ""
 
             if ordered:
-                return "\n".join(f"{i+1}. {item}" for i, item in enumerate(items))
+                return "\n".join(f"{i + 1}. {item}" for i, item in enumerate(items))
             else:
                 return "\n".join(f"- {item}" for item in items)
 
@@ -536,12 +526,8 @@ class IBMCPServer:
         )
         async def lookup_contract(
             symbol: Annotated[str, "Stock symbol (e.g., AAPL, GOOGL, etc.)"],
-            sec_type: Annotated[
-                str, "Security type (e.g., STK, OPT, FUT, etc.)"
-            ] = "STK",
-            exchange: Annotated[
-                str, "Exchange (e.g., SMART, NYSE, NASDAQ, etc.)"
-            ] = "SMART",
+            sec_type: Annotated[str, "Security type (e.g., STK, OPT, FUT, etc.)"] = "STK",
+            exchange: Annotated[str, "Exchange (e.g., SMART, NYSE, NASDAQ, etc.)"] = "SMART",
             currency: Annotated[str, "Currency (e.g., USD, EUR, etc.)"] = "USD",
         ) -> str:
             await _ensure_connected()
@@ -647,9 +633,7 @@ class IBMCPServer:
         async def get_historical_data(
             symbol: Annotated[str, "Stock symbol or conid"],
             duration: Annotated[str, "Duration (e.g., '1 M', '1 Y', '5 D')"] = "1 M",
-            bar_size: Annotated[
-                str, "Bar size (e.g., '1 day', '1 hour', '5 mins')"
-            ] = "1 day",
+            bar_size: Annotated[str, "Bar size (e.g., '1 day', '1 hour', '5 mins')"] = "1 day",
             data_type: Annotated[
                 str,
                 "Data type (TRADES, MIDPOINT, BID, ASK, FEE_RATE, OPTION_IMPLIED_VOLATILITY)",
@@ -708,17 +692,13 @@ class IBMCPServer:
                 ]
 
                 if len(bars) > max_bars:
-                    result.append(
-                        f"\n*Showing last {max_bars} of {len(bars)} total bars*"
-                    )
+                    result.append(f"\n*Showing last {max_bars} of {len(bars)} total bars*")
 
                 return "\n".join(result)
             except Exception as e:  # pragma: no cover
                 return f"Error getting historical data: {e}"
 
-        @self.server.tool(
-            description="Search for contracts by partial symbol or company name"
-        )
+        @self.server.tool(description="Search for contracts by partial symbol or company name")
         async def search_contracts(
             pattern: Annotated[str, "Search pattern (symbol or company name)"],
         ) -> str:
@@ -757,9 +737,7 @@ class IBMCPServer:
             start_date: Annotated[str, "Start date (YYYY-MM-DD)"],
             end_date: Annotated[str, "End date (YYYY-MM-DD)"],
             max_count: Annotated[int, "Maximum number of articles to retrieve"] = 10,
-            exchange: Annotated[
-                str, "Exchange (e.g., SMART, NYSE, NASDAQ, etc.)"
-            ] = "SMART",
+            exchange: Annotated[str, "Exchange (e.g., SMART, NYSE, NASDAQ, etc.)"] = "SMART",
             currency: Annotated[str, "Currency (e.g., USD, EUR, etc.)"] = "USD",
         ) -> str:
             await _ensure_connected()
@@ -805,9 +783,7 @@ class IBMCPServer:
             except Exception as e:  # pragma: no cover
                 return f"Error getting historical news: {e}"
 
-        @self.server.tool(
-            description="Retrieve a full news article by ID and provider code"
-        )
+        @self.server.tool(description="Retrieve a full news article by ID and provider code")
         async def get_article(
             articleId: Annotated[str, "Article ID returned from historical news"],
             providerCode: Annotated[str, "Provider code returned from historical news"],
@@ -1004,9 +980,7 @@ class IBMCPServer:
         )
         async def get_option_chain(
             symbol: Annotated[str, "Underlying symbol (e.g., XSP, SPX, AAPL)"],
-            sec_type: Annotated[
-                str, "Underlying security type (IND, STK, ...)"
-            ] = "IND",
+            sec_type: Annotated[str, "Underlying security type (IND, STK, ...)"] = "IND",
             exchange: Annotated[
                 str, "Underlying exchange (CBOE for indices, SMART for stocks)"
             ] = "CBOE",
@@ -1019,18 +993,14 @@ class IBMCPServer:
             max_strikes: Annotated[
                 int, Field(description="Max strikes per page", ge=1, le=500)
             ] = 20,
-            strike_offset: Annotated[
-                int, Field(description="Strike pagination offset", ge=0)
-            ] = 0,
+            strike_offset: Annotated[int, Field(description="Strike pagination offset", ge=0)] = 0,
         ) -> str:
             await _ensure_connected()
             underlying = _create_contract(
                 symbol, sec_type=sec_type, exchange=exchange, currency=currency
             )
             try:
-                qualified = _flatten_contracts(
-                    await self.ib.qualifyContractsAsync(underlying)
-                )
+                qualified = _flatten_contracts(await self.ib.qualifyContractsAsync(underlying))
                 if not qualified:
                     return f"No contract found for {symbol}"
                 c = qualified[0]
@@ -1044,9 +1014,7 @@ class IBMCPServer:
                 )
                 if trading_class:
                     chains = [
-                        ch
-                        for ch in chains
-                        if getattr(ch, "tradingClass", "") == trading_class
+                        ch for ch in chains if getattr(ch, "tradingClass", "") == trading_class
                     ]
                 return _format_option_chain_markdown(
                     symbol,
@@ -1085,12 +1053,8 @@ class IBMCPServer:
             ],
             exchange: Annotated[str, "Option exchange (e.g., SMART)"] = "SMART",
             currency: Annotated[str, "Currency (e.g., USD)"] = "USD",
-            trading_class: Annotated[
-                str, "Option trading class (defaults to the symbol)"
-            ] = "",
-            use_delayed: Annotated[
-                bool, "Use delayed-frozen data (no OPRA needed)"
-            ] = True,
+            trading_class: Annotated[str, "Option trading class (defaults to the symbol)"] = "",
+            use_delayed: Annotated[bool, "Use delayed-frozen data (no OPRA needed)"] = True,
         ) -> str:
             # Dedupe: double-subscribing one contract would leak an IB
             # market-data line (only the newest request gets cancelled).
@@ -1118,9 +1082,7 @@ class IBMCPServer:
                     )
                     for strike in unique_strikes
                 ]
-                qualified = _flatten_contracts(
-                    await self.ib.qualifyContractsAsync(*contracts)
-                )
+                qualified = _flatten_contracts(await self.ib.qualifyContractsAsync(*contracts))
                 if not qualified:
                     return f"No option contracts found for {symbol} {expiry} {right}"
                 tickers = await _fetch_tickers(qualified, use_delayed=use_delayed)
@@ -1147,25 +1109,17 @@ class IBMCPServer:
             symbol: Annotated[str, "Index symbol or conid (e.g., XSP, SPX)"],
             exchange: Annotated[str, "Index exchange (e.g., CBOE)"] = "CBOE",
             currency: Annotated[str, "Currency (e.g., USD)"] = "USD",
-            use_delayed: Annotated[
-                bool, "Use delayed-frozen data (no OPRA needed)"
-            ] = True,
+            use_delayed: Annotated[bool, "Use delayed-frozen data (no OPRA needed)"] = True,
         ) -> str:
             await _ensure_connected()
-            index = _create_contract(
-                symbol, sec_type="IND", exchange=exchange, currency=currency
-            )
+            index = _create_contract(symbol, sec_type="IND", exchange=exchange, currency=currency)
             try:
-                qualified = _flatten_contracts(
-                    await self.ib.qualifyContractsAsync(index)
-                )
+                qualified = _flatten_contracts(await self.ib.qualifyContractsAsync(index))
                 if not qualified:
                     return f"No index found for {symbol}"
                 tickers = await _fetch_tickers([qualified[0]], use_delayed=use_delayed)
                 ticker = tickers[0] if tickers else None
-                return _format_index_quote_markdown(
-                    symbol, ticker, use_delayed=use_delayed
-                )
+                return _format_index_quote_markdown(symbol, ticker, use_delayed=use_delayed)
             except Exception as e:  # pragma: no cover
                 return f"Error getting index quote: {e}"
 
@@ -1182,24 +1136,14 @@ class IBMCPServer:
             symbol: Annotated[str, "Stock symbol or conid"],
             action: Annotated[str, "Order action: BUY or SELL"],
             quantity: Annotated[float, "Number of shares/contracts"],
-            order_type: Annotated[
-                str, "Order type: MKT, LMT, STOP, STP_LMT"
-            ] = "MKT",
-            limit_price: Annotated[
-                float, "Limit price (required for LMT, STP_LMT)"
-            ] = 0.0,
-            stop_price: Annotated[
-                float, "Stop price (required for STOP, STP_LMT)"
-            ] = 0.0,
-            tif: Annotated[
-                str, "Time in force: DAY, GTC, IOC, GTD"
-            ] = "DAY",
+            order_type: Annotated[str, "Order type: MKT, LMT, STOP, STP_LMT"] = "MKT",
+            limit_price: Annotated[float, "Limit price (required for LMT, STP_LMT)"] = 0.0,
+            stop_price: Annotated[float, "Stop price (required for STOP, STP_LMT)"] = 0.0,
+            tif: Annotated[str, "Time in force: DAY, GTC, IOC, GTD"] = "DAY",
             sec_type: Annotated[str, "Security type (STK, OPT, FUT, etc.)"] = "STK",
             exchange: str = "SMART",
             currency: str = "USD",
-            account: Annotated[
-                str, "Account to route to (empty = default)"
-            ] = "",
+            account: Annotated[str, "Account to route to (empty = default)"] = "",
         ) -> str:
             if self.readonly:
                 return (
@@ -1216,9 +1160,7 @@ class IBMCPServer:
 
             contract = _create_contract(symbol, sec_type, exchange, currency)
             try:
-                qualified = _flatten_contracts(
-                    await self.ib.qualifyContractsAsync(contract)
-                )
+                qualified = _flatten_contracts(await self.ib.qualifyContractsAsync(contract))
                 if not qualified:
                     return f"Error: No contract found for {symbol}"
                 c = qualified[0]
@@ -1270,8 +1212,7 @@ class IBMCPServer:
 
         @self.server.tool(
             description=(
-                "Cancel an open order by its order ID. "
-                "Requires readonly=false on startup."
+                "Cancel an open order by its order ID. Requires readonly=false on startup."
             )
         )
         async def cancel_order(
@@ -1309,6 +1250,216 @@ class IBMCPServer:
 
         @self.server.tool(
             description=(
+                "Modify an existing open order's quantity, limit price, "
+                "stop price, or order type. Requires readonly=false."
+            )
+        )
+        async def modify_order(
+            order_id: Annotated[int, "Order ID to modify"],
+            quantity: Annotated[float, "New total quantity (0 = keep current)"] = 0,
+            order_type: Annotated[
+                str, "New order type: MKT, LMT, STOP, STP_LMT (empty = keep current)"
+            ] = "",
+            limit_price: Annotated[float, "New limit price (0 = keep current)"] = 0.0,
+            stop_price: Annotated[float, "New stop price (0 = keep current)"] = 0.0,
+        ) -> str:
+            if self.readonly:
+                return (
+                    "Error: Server is running in read-only mode. "
+                    "Restart with IB_MCP_READONLY=false to enable trading."
+                )
+            await _ensure_connected()
+            try:
+                # Find the trade by orderId
+                trade = None
+                for t in self.ib.openTrades():
+                    if t.order.orderId == order_id:
+                        trade = t
+                        break
+
+                if trade is None:
+                    return f"No open order found with ID {order_id}"
+
+                order = trade.order
+
+                # Apply modifications
+                if quantity > 0:
+                    order.totalQuantity = quantity
+                if order_type:
+                    order.orderType = order_type
+                if limit_price > 0:
+                    order.lmtPrice = limit_price
+                if stop_price > 0:
+                    order.auxPrice = stop_price
+
+                # Re-submit the modified order
+                self.ib.placeOrder(trade.contract, order)
+                await asyncio.sleep(1)
+
+                s = trade.orderStatus
+                lines = [
+                    f"# Order {order_id} Modified",
+                    "",
+                    f"- **Status**: {s.status}",
+                    f"- **Type**: {order.orderType}",
+                    f"- **Qty**: {order.totalQuantity}",
+                    f"- **Filled**: {s.filled}",
+                    f"- **Remaining**: {s.remaining}",
+                ]
+                if order.lmtPrice and float(order.lmtPrice) > 0:
+                    lines.append(f"- **Limit Price**: {order.lmtPrice}")
+                if order.auxPrice and float(order.auxPrice) > 0:
+                    lines.append(f"- **Stop Price**: {order.auxPrice}")
+                return "\n".join(lines)
+            except Exception as e:
+                return f"Error modifying order {order_id}: {e}"
+
+        @self.server.tool(
+            description=(
+                "Place a bracket order: entry + take-profit + stop-loss as "
+                "a parent/child group. The entry is a LMT order; TP is LMT, "
+                "SL is STOP — linked by parentId and transmit flags. "
+                "Supports trailing stops (trail_amount > 0 replaces the static "
+                "stop-loss with a TRAIL order). TP and SL/Trail are OCA-linked "
+                "(one-cancels-all). Requires readonly=false."
+            )
+        )
+        async def place_bracket_order(
+            symbol: Annotated[str, "Stock symbol or conid"],
+            action: Annotated[str, "Entry action: BUY or SELL"],
+            quantity: Annotated[float, "Number of shares/contracts"],
+            entry_price: Annotated[float, "Entry limit price"],
+            take_profit_price: Annotated[float, "Take-profit limit price"],
+            stop_loss_price: Annotated[
+                float, "Stop-loss trigger price (ignored if trail_amount > 0)"
+            ] = 0.0,
+            trail_amount: Annotated[
+                float,
+                "If > 0, use a trailing stop instead of a fixed stop-loss. "
+                "This is the trailing distance in dollars.",
+            ] = 0.0,
+            trail_percent: Annotated[
+                float,
+                "Alternative to trail_amount: trailing distance as percent "
+                "(e.g. 5 = 5%). If > 0, overrides trail_amount.",
+            ] = 0.0,
+            tif: Annotated[str, "Time in force for all legs: DAY, GTC, IOC, GTD"] = "GTC",
+            sec_type: Annotated[str, "Security type (STK, OPT, FUT, etc.)"] = "STK",
+            exchange: str = "SMART",
+            currency: str = "USD",
+            account: Annotated[str, "Account to route to (empty = default)"] = "",
+        ) -> str:
+            if self.readonly:
+                return (
+                    "Error: Server is running in read-only mode. "
+                    "Restart with IB_MCP_READONLY=false to enable trading."
+                )
+            await _ensure_connected()
+
+            contract = _create_contract(symbol, sec_type, exchange, currency)
+            try:
+                qualified = _flatten_contracts(await self.ib.qualifyContractsAsync(contract))
+                if not qualified:
+                    return f"Error: No contract found for {symbol}"
+                c = qualified[0]
+
+                reverse_action = "SELL" if action.upper() == "BUY" else "BUY"
+
+                # Reserve order IDs for parent/child linking
+                parent_id = self.ib.client.getReqId()
+                tp_id = self.ib.client.getReqId()
+                sl_id = self.ib.client.getReqId()
+
+                # Common kwargs for all legs
+                common: dict[str, Any] = {"tif": tif}
+                if account:
+                    common["account"] = account
+
+                # Entry order (parent)
+                entry_order = ib.LimitOrder(action.upper(), quantity, entry_price, **common)
+                entry_order.orderId = parent_id
+                entry_order.transmit = False
+
+                # Take-profit order (child)
+                tp_order = ib.LimitOrder(reverse_action, quantity, take_profit_price, **common)
+                tp_order.orderId = tp_id
+                tp_order.parentId = parent_id
+                tp_order.transmit = False
+
+                # Stop-loss or trailing stop (child, transmitted last)
+                use_trailing = trail_amount > 0 or trail_percent > 0
+                if use_trailing:
+                    sl_order = ib.Order(
+                        action=reverse_action,
+                        totalQuantity=quantity,
+                        orderType="TRAIL",
+                        **common,
+                    )
+                    if trail_percent > 0:
+                        sl_order.trailingPercent = trail_percent
+                    else:
+                        sl_order.auxPrice = trail_amount
+                else:
+                    if stop_loss_price <= 0:
+                        return (
+                            "Error: stop_loss_price is required when "
+                            "trail_amount/trail_percent are 0"
+                        )
+                    sl_order = ib.StopOrder(reverse_action, quantity, stop_loss_price, **common)
+                sl_order.orderId = sl_id
+                sl_order.parentId = parent_id
+                sl_order.transmit = True
+
+                oca_group = f"oca_{symbol}_{int(time.time() * 1000)}"
+                tp_order.ocaGroup = oca_group
+                tp_order.ocaType = 1
+                sl_order.ocaGroup = oca_group
+                sl_order.ocaType = 1
+
+                # Place all three orders
+                trades = []
+                for o in [entry_order, tp_order, sl_order]:
+                    trades.append(self.ib.placeOrder(c, o))
+
+                await asyncio.sleep(1)
+
+                # Build summary
+                stop_desc = (
+                    (
+                        f"TRAIL {trail_percent:.2f}%"
+                        if trail_percent > 0
+                        else f"TRAIL ${trail_amount:.2f}"
+                    )
+                    if use_trailing
+                    else f"STOP ${stop_loss_price:.2f}"
+                )
+
+                lines = [
+                    f"# Bracket Order Placed: {action.upper()} {quantity} {symbol}",
+                    "",
+                    "## Entry (Parent)",
+                    f"- **Order ID**: {parent_id}",
+                    f"- **Type**: LMT @ ${entry_price:.2f} ({tif})",
+                    f"- **Status**: {trades[0].orderStatus.status}",
+                    "",
+                    "## Take-Profit (Child)",
+                    f"- **Order ID**: {tp_id}",
+                    f"- **Parent**: {parent_id}",
+                    f"- **Type**: LMT @ ${take_profit_price:.2f}",
+                    f"- **Status**: {trades[1].orderStatus.status}",
+                    "",
+                    f"## Stop-Loss (Child) — OCA: {oca_group}",
+                    f"- **Order ID**: {sl_id}",
+                    f"- **Parent**: {parent_id}",
+                    f"- **Type**: {stop_desc}",
+                    f"- **Status**: {trades[2].orderStatus.status}",
+                ]
+                return "\n".join(lines)
+            except Exception as e:
+                return f"Error placing bracket order: {e}"
+
+        @self.server.tool(
+            description=(
                 "Get all open orders for this client (or all clients if "
                 "all_clients=true). Shows order ID, symbol, action, quantity, "
                 "type, status, and filled quantity."
@@ -1317,13 +1468,15 @@ class IBMCPServer:
         async def get_open_orders(
             all_clients: Annotated[
                 bool,
-                "If true, fetch orders from all connected API clients "
-                "(not just this one)",
+                "If true, fetch orders from all connected API clients (not just this one)",
             ] = False,
         ) -> str:
             await _ensure_connected()
             try:
-                trades = await self.ib.reqAllOpenOrdersAsync() if all_clients else self.ib.openTrades()
+                if all_clients:
+                    trades = await self.ib.reqAllOpenOrdersAsync()
+                else:
+                    trades = self.ib.openTrades()
                 if not trades:
                     return "No open orders"
 
@@ -1368,20 +1521,14 @@ class IBMCPServer:
             )
         )
         async def get_trades(
-            symbol: Annotated[
-                str, "Filter by symbol (empty = all recent executions)"
-            ] = "",
-            max_count: Annotated[
-                int, Field(description="Max results", ge=1, le=100)
-            ] = 20,
+            symbol: Annotated[str, "Filter by symbol (empty = all recent executions)"] = "",
+            max_count: Annotated[int, Field(description="Max results", ge=1, le=100)] = 20,
         ) -> str:
             await _ensure_connected()
             try:
                 exec_filter = ib.ExecutionFilter()
                 if symbol:
-                    exec_filter = ib.ExecutionFilter(
-                        symbol=symbol, secType="STK"
-                    )
+                    exec_filter = ib.ExecutionFilter(symbol=symbol, secType="STK")
                 fills = await self.ib.reqExecutionsAsync(exec_filter)
                 if not fills:
                     filter_desc = f" for {symbol}" if symbol else ""
@@ -1418,10 +1565,7 @@ class IBMCPServer:
 
                 table = _format_markdown_table(headers, rows)
                 filter_desc = f" for {symbol}" if symbol else ""
-                return (
-                    f"# Recent Executions{filter_desc} (last {len(fills)})\n\n"
-                    f"{table}"
-                )
+                return f"# Recent Executions{filter_desc} (last {len(fills)})\n\n{table}"
             except Exception as e:
                 return f"Error getting trades: {e}"
 
@@ -1439,7 +1583,9 @@ class IBMCPServer:
         self.get_option_quotes = get_option_quotes  # type: ignore[attr-defined]
         self.get_index_quote = get_index_quote  # type: ignore[attr-defined]
         self.place_order = place_order  # type: ignore[attr-defined]
+        self.place_bracket_order = place_bracket_order  # type: ignore[attr-defined]
         self.cancel_order = cancel_order  # type: ignore[attr-defined]
+        self.modify_order = modify_order  # type: ignore[attr-defined]
         self.get_open_orders = get_open_orders  # type: ignore[attr-defined]
         self.get_trades = get_trades  # type: ignore[attr-defined]
 
@@ -1468,9 +1614,7 @@ class IBMCPServer:
             # FastMCP's run manages its own event loop using anyio.run internally.
             if transport == "http":
                 # Use streamable-http transport for HTTP mode
-                self.server.run(
-                    transport="streamable-http", host=http_host, port=http_port
-                )
+                self.server.run(transport="streamable-http", host=http_host, port=http_port)
             else:
                 # Default STDIO transport
                 self.server.run()
@@ -1485,9 +1629,7 @@ def main() -> None:
     import argparse
     import os
 
-    parser = argparse.ArgumentParser(
-        description="Interactive Brokers MCP Server (FastMCP)"
-    )
+    parser = argparse.ArgumentParser(description="Interactive Brokers MCP Server (FastMCP)")
 
     # IB connection parameters
     parser.add_argument(
@@ -1510,8 +1652,7 @@ def main() -> None:
     parser.add_argument(
         "--readonly",
         action=argparse.BooleanOptionalAction,
-        default=os.getenv("IB_MCP_READONLY", "true").lower()
-        in ("true", "1", "yes"),
+        default=os.getenv("IB_MCP_READONLY", "true").lower() in ("true", "1", "yes"),
         help="Read-only mode — no trading (env: IB_MCP_READONLY, default: true). "
         "Use --no-readonly to enable trading tools.",
     )
@@ -1537,12 +1678,8 @@ def main() -> None:
 
     args = parser.parse_args()
 
-    server = IBMCPServer(
-        args.host, args.port, args.client_id, readonly=args.readonly
-    )
-    server.run(
-        transport=args.transport, http_host=args.http_host, http_port=args.http_port
-    )
+    server = IBMCPServer(args.host, args.port, args.client_id, readonly=args.readonly)
+    server.run(transport=args.transport, http_host=args.http_host, http_port=args.http_port)
 
 
 __all__ = ["IBMCPServer", "main"]

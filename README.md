@@ -1,40 +1,51 @@
-# IB Async MCP Server
+# IB MCP Server
 
-[![CI](https://github.com/Hellek1/ib-mcp/actions/workflows/ci.yml/badge.svg)](https://github.com/Hellek1/ib-mcp/actions/workflows/ci.yml)
+MCP server exposing Interactive Brokers data **and trading operations** via [`ib_async`](https://ib-api-reloaded.github.io/ib_async/) and [`FastMCP`](https://github.com/modelcontextprotocol/fastmcp).
 
-Lightweight Model Context Protocol (MCP) server exposing read-only Interactive Brokers data (contracts, historical data, fundamentals, news, portfolio, account) via the asynchronous [`ib_async`](https://ib-api-reloaded.github.io/ib_async/) library and [`FastMCP`](https://github.com/modelcontextprotocol/fastmcp). Ideal for feeding financial data into LLM workflows and autonomous agents while keeping trading disabled.
+Supports read-only mode (default) for safe data access, and a full trading mode (place/cancel/modify orders, bracket orders with OCA groups and trailing stops) when explicitly enabled.
 
-## Overview
-
-This directory contains an MCP (Model Context Protocol) server that wraps the ib_async library to allow LLMs to interact with Interactive Brokers data.
+> Forked from [Hellek1/ib-mcp](https://github.com/Hellek1/ib-mcp) v0.2.12 (BSD-3-Clause), extended with trading capabilities.
 
 ## Features
 
-The MCP server provides the following tools for LLM interaction:
+### Read Tools (always available)
 
-### 1. Contract Lookup and Conversion
+#### Contract Lookup & Conversion
 - **lookup_contract**: Look up contract details by ticker symbol and optional exchange/currency
 - **ticker_to_conid**: Convert ticker symbol to contract ID (conid)
+- **search_contracts**: Search for contracts by partial symbol or company name
 
-### 2. Market Data
+#### Market Data
 - **get_historical_data**: Retrieve historical market data with configurable duration, bar size, and data type
 
-### 3. Options
+#### Options
 - **get_option_chain**: List option-chain parameters (expirations and strikes) for an underlying, with strike-range filtering and pagination
 - **get_option_quotes**: Batch bid/ask/last/close and model IV/delta for a list of option strikes; defaults to delayed-frozen data (no OPRA subscription required)
 - **get_index_quote**: Spot quote (last/close/bid/ask) for an index, useful for strike-from-spot calculations
 
-### 4. News
-- **get_news**: Retrieve current news articles for a contract
+#### News
 - **get_historical_news**: Retrieve historical news articles within a date range
+- **get_article**: Retrieve a full news article by ID and provider code
 
-### 5. Fundamental Data
+#### Fundamental Data
 - **get_fundamental_data**: Retrieve fundamental data including financial summaries, ownership, financial statements, and more
 
-### 6. Portfolio and Account Information
-- **get_portfolio**: Retrieve portfolio positions and details
+#### Portfolio & Account
 - **get_account_summary**: Retrieve account summary information
 - **get_positions**: Retrieve current positions with contract metadata, including option expiry/strike/right/multiplier fields
+- **get_contract_details**: Get detailed contract information including dividends and corporate actions
+
+### Trading Tools (require `readonly=false`)
+
+#### Order Management
+- **place_order**: Place a buy/sell order (MKT, LMT, STOP, STP_LMT) with configurable TIF (DAY, GTC, IOC, GTD) and account routing
+- **place_bracket_order**: Place a 3-leg bracket order (entry LMT + take-profit LMT + stop-loss STOP) with parent/child linking, OCA group, and optional trailing stop
+- **modify_order**: Modify an open order's quantity, price, or order type
+- **cancel_order**: Cancel an open order by order ID
+
+#### Order & Execution Queries
+- **get_open_orders**: List open orders (this client or all clients)
+- **get_trades**: Get recent execution history (fills) with optional symbol filter
 
 ## Prerequisites
 
@@ -43,7 +54,6 @@ The MCP server provides the following tools for LLM interaction:
    - [IB Gateway (Stable)](https://www.interactivebrokers.com/en/trading/ibgateway-stable.php) - Recommended for API-only use
    - [IB Gateway (Latest)](https://www.interactivebrokers.com/en/trading/ibgateway-latest.php) - Latest features
    - [Trader Workstation (TWS)](https://www.interactivebrokers.com/en/trading/tws.php) - Full trading platform
-
 3. **API Configuration**:
    - Enable API access in TWS/Gateway: `Configure → API → Settings` and check "Enable ActiveX and Socket Clients"
    - Set appropriate port (default: 7497 for TWS, 4001 for Gateway)
@@ -53,7 +63,7 @@ The MCP server provides the following tools for LLM interaction:
 
 ### From source (development)
 ```bash
-git clone https://github.com/Hellek1/ib-mcp.git
+git clone https://github.com/stavg91/ib-mcp.git
 cd ib-mcp
 pip install poetry
 poetry install
@@ -61,173 +71,68 @@ poetry install
 
 ## Usage
 
-### Running the MCP Server
+### Read-Only Mode (Default)
 
-#### STDIO Mode (Default)
-
-The default mode runs as a spawnable MCP server communicating via standard input/output. This is ideal for integration with MCP clients like Claude Desktop.
+Safe for data retrieval — trading tools return an error.
 
 ```bash
-# Using default settings (TWS on localhost:7497)
-poetry run ib-mcp-server
+# Default: read-only
+poetry run ib-mcp-server --host 127.0.0.1 --port 4001 --client-id 100
 
-# Custom IB Gateway connection
-poetry run ib-mcp-server --host 127.0.0.1 --port 4001 --client-id 1
-
-# Help with all options
-poetry run ib-mcp-server --help
+# Or via env vars
+IB_PORT=4001 IB_CLIENT_ID=100 poetry run ib-mcp-server
 ```
 
-#### HTTP Mode
+### Trading Mode
+
+Enable order placement, modification, and cancellation:
+
+```bash
+# Via CLI flag
+poetry run ib-mcp-server --port 4001 --client-id 100 --no-readonly
+
+# Via env var
+IB_MCP_READONLY=false IB_PORT=4001 IB_CLIENT_ID=100 poetry run ib-mcp-server
+```
+
+### STDIO Mode (Default)
+
+The default mode runs as a spawnable MCP server communicating via standard input/output. This is ideal for integration with MCP clients like Claude Desktop or Hermes Agent.
+
+### HTTP Mode
 
 HTTP mode runs a persistent server that listens on a host and port, enabling multi-client access and network connectivity.
 
 ```bash
-# Local HTTP server
 poetry run ib-mcp-server --transport http --http-host 127.0.0.1 --http-port 8000
-
-# Listen on all interfaces (for Docker/remote access)
-poetry run ib-mcp-server --transport http --http-host 0.0.0.0 --http-port 8000
-
-# Using environment variables
-IB_MCP_TRANSPORT=http IB_MCP_HTTP_HOST=127.0.0.1 IB_MCP_HTTP_PORT=8000 poetry run ib-mcp-server
 ```
-
-**Security Note**: HTTP mode binds to localhost (127.0.0.1) by default. For remote access, place behind a reverse proxy with proper authentication and use a protected network.
 
 ### Command Line Options
 
 #### IB Connection
-- `--host`: IB Gateway/TWS host (default: 127.0.0.1)
-- `--port`: IB Gateway/TWS port (default: 7497 for TWS, use 4001 for Gateway)
-- `--client-id`: Unique client ID for the connection (default: 1)
+- `--host`: IB Gateway/TWS host (default: 127.0.0.1, env: `IB_HOST`)
+- `--port`: IB Gateway/TWS port (default: 7497, env: `IB_PORT`)
+- `--client-id`: Unique client ID for the connection (default: 1, env: `IB_CLIENT_ID`)
+- `--readonly` / `--no-readonly`: Read-only mode (default: true, env: `IB_MCP_READONLY`). Use `--no-readonly` to enable trading.
 
-#### Transport Configuration
-- `--transport`: Transport protocol - `stdio` (default) or `http`
-- `--http-host`: HTTP server host (default: 127.0.0.1)
-- `--http-port`: HTTP server port (default: 8000)
+#### Transport
+- `--transport`: `stdio` (default) or `http` (env: `IB_MCP_TRANSPORT`)
+- `--http-host`: HTTP server host (default: 127.0.0.1, env: `IB_MCP_HTTP_HOST`)
+- `--http-port`: HTTP server port (default: 8000, env: `IB_MCP_HTTP_PORT`)
 
 ### Environment Variables
 
-You can also use environment variables instead of flags:
-
-#### IB Connection
-- `IB_HOST`
-- `IB_PORT`
-- `IB_CLIENT_ID`
-
-#### Transport
-- `IB_MCP_TRANSPORT`
-- `IB_MCP_HTTP_HOST`
-- `IB_MCP_HTTP_PORT`
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `IB_HOST` | `127.0.0.1` | IB Gateway/TWS host |
+| `IB_PORT` | `7497` | IB Gateway/TWS port |
+| `IB_CLIENT_ID` | `1` | Client ID |
+| `IB_MCP_READONLY` | `true` | Read-only mode (`false` enables trading) |
+| `IB_MCP_TRANSPORT` | `stdio` | Transport protocol |
+| `IB_MCP_HTTP_HOST` | `127.0.0.1` | HTTP server host |
+| `IB_MCP_HTTP_PORT` | `8000` | HTTP server port |
 
 Flags override environment variables if both are provided.
-
-### When to Use STDIO vs HTTP
-
-| Use Case | STDIO | HTTP |
-|----------|-------|------|
-| Claude Desktop integration | ✅ Recommended | ❌ Not supported |
-| Local single-client usage | ✅ Simple setup | ⚠️ Overkill |
-| Multi-client access | ❌ Not possible | ✅ Supported |
-| Remote/network access | ❌ Not possible | ✅ Supported |
-| Docker deployment | ✅ Simple | ✅ More flexible |
-| Production usage | ✅ Secure by default | ⚠️ Needs auth/proxy |
-
-## Docker
-
-### Build
-
-```bash
-docker build -t ib-mcp .
-```
-
-### Run (connect to TWS running on host)
-
-#### STDIO Mode (Default)
-
-On macOS/Windows Docker Desktop you can reach host via `host.docker.internal` (already the default):
-
-```bash
-docker run --rm -it \
-   -e IB_HOST=host.docker.internal \
-   -e IB_PORT=7497 \
-   -e IB_CLIENT_ID=1 \
-   ghcr.io/hellek1/ib-mcp
-```
-
-On Linux you may need to add `--add-host host.docker.internal:host-gateway` and ensure the TWS/Gateway port is accessible:
-
-```bash
-docker run --rm -it \
-   --add-host host.docker.internal:host-gateway \
-   -e IB_HOST=host.docker.internal \
-   -e IB_PORT=7497 \
-   ghcr.io/hellek1/ib-mcp
-```
-
-Override arguments directly if preferred:
-
-```bash
-docker run --rm -it ghcr.io/hellek1/ib-mcp --host host.docker.internal --port 4001 --client-id 2
-```
-
-#### HTTP Mode
-
-Run as an HTTP server for multi-client or remote access:
-
-```bash
-# Local access
-docker run --rm -it -p 8000:8000 \
-   -e IB_HOST=host.docker.internal \
-   -e IB_PORT=7497 \
-   -e IB_MCP_TRANSPORT=http \
-   -e IB_MCP_HTTP_HOST=0.0.0.0 \
-   -e IB_MCP_HTTP_PORT=8000 \
-   ghcr.io/hellek1/ib-mcp
-
-# Or using command line arguments
-docker run --rm -it -p 8000:8000 \
-   ghcr.io/hellek1/ib-mcp \
-   --host host.docker.internal --port 7497 \
-   --transport http --http-host 0.0.0.0 --http-port 8000
-```
-
-The HTTP server will be available at `http://localhost:8000/mcp/`.
-
-
-### MCP Client Integration
-
-#### STDIO Mode
-
-The server communicates via stdio using the MCP protocol. It can be integrated with MCP-compatible tools and LLM applications.
-
-Example MCP client configuration (e.g. Claude Desktop) using Docker:
-```json
-{
-   "mcpServers": {
-      "ib-async": {
-         "command": "docker",
-         "args": [
-            "run",
-            "--rm",
-            "--add-host","host.docker.internal:host-gateway",
-            "-e","IB_HOST=host.docker.internal",
-            "-e","IB_PORT=7497",
-            "-e","IB_CLIENT_ID=1",
-            "ghcr.io/hellek1/ib-mcp:latest"
-         ]
-      }
-   }
-}
-```
-
-Notes:
-1. Remove the `--add-host` line on macOS/Windows Docker Desktop (it's only needed on Linux).
-
-#### HTTP Mode
-
-For HTTP mode, connect to the server at `http://localhost:8000/mcp/` using any MCP-compatible HTTP client.
 
 ## Available Tools
 
@@ -235,11 +140,12 @@ For HTTP mode, connect to the server at `http://localhost:8000/mcp/` using any M
 ```
 lookup_contract(symbol, sec_type="STK", exchange="SMART", currency="USD")
 ticker_to_conid(symbol, sec_type="STK", exchange="SMART", currency="USD")
+search_contracts(pattern)
 ```
 
 ### Market Data
 ```
-get_historical_data(symbol, duration="1 M", bar_size="1 day", data_type="TRADES", exchange="SMART", currency="USD")
+get_historical_data(symbol, duration="1 M", bar_size="1 day", data_type="TRADES", max_bars=20, exchange="SMART", currency="USD")
 ```
 
 ### Options
@@ -249,48 +155,51 @@ get_option_quotes(symbol, expiry, right, strikes, exchange="SMART", currency="US
 get_index_quote(symbol, exchange="CBOE", currency="USD", use_delayed=True)
 ```
 
-`get_option_chain` returns the available expirations plus a strike window filtered
-to `[min_strike, max_strike]` (0 = unbounded) and paginated with `max_strikes`
-(default 20) and `strike_offset`; the output states how to page to the next window.
-When an underlying lists several trading classes (e.g. SPX and SPXW), pass
-`trading_class` to page one chain. `get_option_quotes` fetches up to 20 unique
-strikes per call (duplicates are ignored, to respect IB pacing) and defaults to
-delayed-frozen data, so it works without an OPRA subscription — pass
-`use_delayed=false` for live data. Both tools are read-only.
-
 ### News
 ```
-get_news(symbol, provider_codes="", exchange="SMART", currency="USD")
-get_historical_news(symbol, start_date, end_date, provider_codes="", max_count=10, exchange="SMART", currency="USD")
+get_historical_news(symbol, start_date, end_date, max_count=10, exchange="SMART", currency="USD")
+get_article(articleId, providerCode, as_markdown=True, truncate=0)
 ```
 
 ### Fundamentals
 ```
 get_fundamental_data(symbol, report_type="ReportsFinSummary", exchange="SMART", currency="USD")
+get_contract_details(symbol, sec_type="STK", exchange="SMART", currency="USD")
 ```
-
-Available report types:
-- `ReportsFinSummary`: Financial summary
-- `ReportsOwnership`: Ownership information
-- `ReportsFinStatements`: Financial statements
-- `RESC`: Research reports
-- `CalendarReport`: Calendar events
 
 ### Portfolio & Account
 ```
-get_portfolio(account="")
 get_account_summary(account="")
 get_positions(account="")
 ```
 
-`get_positions` returns a markdown table with account, symbol, security type,
-position, average cost, currency, exchange, local symbol, trading class, and
-contract ID. Option positions also include expiry, strike, right, and multiplier.
+### Trading *(requires readonly=false)*
+```
+place_order(symbol, action, quantity, order_type="MKT", limit_price=0, stop_price=0, tif="DAY", sec_type="STK", exchange="SMART", currency="USD", account="")
+place_bracket_order(symbol, action, quantity, entry_price, take_profit_price, stop_loss_price=0, trail_amount=0, trail_percent=0, tif="GTC", sec_type="STK", exchange="SMART", currency="USD", account="")
+modify_order(order_id, quantity=0, order_type="", limit_price=0, stop_price=0)
+cancel_order(order_id)
+get_open_orders(all_clients=False)
+get_trades(symbol="", max_count=20)
+```
+
+#### Bracket Order Details
+
+`place_bracket_order` creates a 3-leg parent/child group identical to IBKR's native bracket:
+
+- **Entry** (parent): LMT order, `transmit=False`
+- **Take-Profit** (child): LMT order, `parentId=entry`, `transmit=False`
+- **Stop-Loss** (child): STOP or TRAIL order, `parentId=entry`, `transmit=True`
+
+TP and SL are OCA-linked (`ocaType=1`) — when one fills, the other cancels.
+
+If `trail_amount` or `trail_percent` is > 0, the stop-loss leg becomes a TRAIL order instead of a fixed STOP.
 
 ## Example Usage
 
 Once connected to an LLM through MCP, you can ask questions like:
 
+**Read-only:**
 - "Look up the contract details for AAPL"
 - "Get the last month of daily historical data for TSLA"
 - "Show the XSP option chain strikes between 400 and 550"
@@ -299,68 +208,29 @@ Once connected to an LLM through MCP, you can ask questions like:
 - "Show me the financial summary for Google"
 - "What positions do I currently have in my portfolio?"
 
-## Data Formats
-
-### XML to Markdown Conversion
-
-The server automatically converts XML-formatted fundamental data to markdown for better readability in LLM interactions.
-
-### Error Handling
-
-The server includes comprehensive error handling and will provide meaningful error messages when:
-- IB connection fails
-- Invalid symbols are requested
-- Market data is not available
-- Authentication issues occur
-
-## Troubleshooting
-
-### Connection Issues
-
-1. **"Cannot connect to Interactive Brokers"**
-   - Ensure TWS/Gateway is running
-   - Check that API is enabled in settings
-   - Verify port numbers match (7497 for TWS, 4001 for Gateway)
-   - Check firewall settings
-
-2. **"No contract found"**
-   - Verify symbol spelling
-   - Try different exchanges (NYSE, NASDAQ vs SMART)
-   - Check if security type is correct
-
-3. **"No market data"**
-   - Ensure you have appropriate market data subscriptions
-   - Check if markets are open for real-time data
-   - Try delayed data mode if real-time is not available
-
-### Performance Tips
-
-1. Use specific exchanges when possible instead of "SMART" routing
-2. Limit historical data requests to reasonable time ranges
-3. Cache contract IDs for frequently accessed symbols
+**Trading (readonly=false):**
+- "Buy 100 shares of AAPL at market"
+- "Buy 100 shares of DAL at $25.50, take-profit at $27, stop-loss at $24"
+- "Buy 50 shares of TSLA at $180 with a 5% trailing stop, take-profit at $200"
+- "Cancel order 42"
+- "Show my open orders"
+- "Show recent fills for AAPL"
 
 ## Security Considerations
 
-- The MCP server operates in read-only mode - no order placement capabilities
-- Credentials are handled by the IB Gateway/TWS application
-- The server only accesses data you have permission to view in your IB account
+- **Read-only by default**: The server starts in `readonly=true` mode. Trading tools check the flag and return an error if true.
+- **Explicit opt-in for trading**: Must set `IB_MCP_READONLY=false` or pass `--no-readonly`.
+- Credentials are handled by the IB Gateway/TWS application.
+- The server only accesses data you have permission to view in your IB account.
+- Always test trading in a paper trading account before using with real money.
 
 ## Contributing
 
 1. Fork & branch: `feat/xyz`
 2. Install dev deps: `poetry install`
-3. Activate pre-commit: `pre-commit install`
+3. Run linter: `ruff check ib_mcp/ && ruff format ib_mcp/`
 4. Run tests: `poetry run pytest -q`
 5. Open a PR with a concise description.
-
-### Release (maintainers)
-```bash
-poetry version patch  # or minor / major
-poetry build
-poetry publish --username __token__ --password <pypi-token>
-git tag v$(poetry version -s)
-git push --tags
-```
 
 ## Support & References
 
