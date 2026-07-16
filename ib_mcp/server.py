@@ -909,6 +909,59 @@ class IBMCPServer:
 
         @self.server.tool(
             description=(
+                "Retrieve portfolio positions with live market value and "
+                "unrealized P&L. Richer than get_positions (which only shows "
+                "quantity and average cost) — includes marketPrice, marketValue, "
+                "unrealizedPNL, and realizedPNL per position."
+            )
+        )
+        async def get_portfolio(
+            account: Annotated[str, "Account name (empty for all accounts)"] = "",
+        ) -> str:
+            await _ensure_connected()
+            try:
+                portfolio = self.ib.portfolio(account)
+                if not portfolio:
+                    return "No portfolio items found"
+
+                headers = [
+                    "Account",
+                    "Symbol",
+                    "SecType",
+                    "Position",
+                    "Avg Cost",
+                    "Mkt Price",
+                    "Mkt Value",
+                    "Unrealized P&L",
+                    "Realized P&L",
+                    "Currency",
+                ]
+                rows = []
+                for p in portfolio:
+                    c = p.contract
+                    rows.append(
+                        [
+                            str(getattr(p, "account", "")),
+                            str(getattr(c, "symbol", "")),
+                            str(getattr(c, "secType", "")),
+                            _format_position_value(getattr(p, "position", "")),
+                            _format_avg_cost(getattr(p, "averageCost", "")),
+                            _fmt_price(getattr(p, "marketPrice", None)),
+                            _fmt_num(getattr(p, "marketValue", None)),
+                            _fmt_num(getattr(p, "unrealizedPNL", None)),
+                            _fmt_num(getattr(p, "realizedPNL", None)),
+                            str(getattr(c, "currency", "")),
+                        ]
+                    )
+
+                table = _format_markdown_table(headers, rows)
+                account_title = f" for account {account}" if account else " (all accounts)"
+                return f"# Portfolio{account_title}\n\n{table}"
+            except Exception as e:  # pragma: no cover
+                return f"Error getting portfolio: {e}"
+
+        @self.server.tool(
+            description=(
                 "Get detailed contract information including dividends and corporate actions"
             )
         )
@@ -1578,6 +1631,7 @@ class IBMCPServer:
         self.get_fundamental_data = get_fundamental_data  # type: ignore[attr-defined]
         self.get_account_summary = get_account_summary  # type: ignore[attr-defined]
         self.get_positions = get_positions  # type: ignore[attr-defined]
+        self.get_portfolio = get_portfolio  # type: ignore[attr-defined]
         self.get_contract_details = get_contract_details  # type: ignore[attr-defined]
         self.get_option_chain = get_option_chain  # type: ignore[attr-defined]
         self.get_option_quotes = get_option_quotes  # type: ignore[attr-defined]
