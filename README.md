@@ -168,9 +168,10 @@ get_contract_details(symbol, sec_type="STK", exchange="SMART", currency="USD")
 ```
 
 ### Portfolio & Account
-```
+```bash
 get_account_summary(account="")
 get_positions(account="")
+get_portfolio(account="")
 ```
 
 ### Trading *(requires readonly=false)*
