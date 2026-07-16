@@ -1,14 +1,14 @@
 [tool.poetry]
 name = "ib-mcp"
-version = "0.2.12"
-description = "Model Context Protocol (MCP) server exposing Interactive Brokers data via ib_async + FastMCP"
-authors = ["David Hellekalek <hellekalek@gmail.com>"]
+version = "0.3.0"
+description = "MCP server exposing Interactive Brokers data + trading via ib_async + FastMCP"
+authors = ["Stav G. <stavg91@users.noreply.github.com>"]
 license = "BSD-3-Clause"
 readme = "README.md"
-homepage = "https://github.com/Hellek1/ib-mcp"
-repository = "https://github.com/Hellek1/ib-mcp"
-documentation = "https://github.com/Hellek1/ib-mcp#readme"
-keywords = ["interactive-brokers", "ib", "ibapi", "tws", "asyncio", "mcp", "fastmcp", "llm"]
+homepage = "https://github.com/stavg91/ib-mcp"
+repository = "https://github.com/stavg91/ib-mcp"
+documentation = "https://github.com/stavg91/ib-mcp#readme"
+keywords = ["interactive-brokers", "ib", "ibapi", "tws", "asyncio", "mcp", "fastmcp", "llm", "trading"]
 classifiers = [
     "Development Status :: 4 - Beta",
     "Intended Audience :: Developers",

@@ -374,7 +374,11 @@ class IBMCPServer:
     """Interactive Brokers MCP Server (FastMCP edition)."""
 
     def __init__(
-        self, host: str = "127.0.0.1", port: int = 7496, client_id: int = 1
+        self,
+        host: str = "127.0.0.1",
+        port: int = 7496,
+        client_id: int = 1,
+        readonly: bool = True,
     ) -> None:
         self.server = FastMCP(
             name="IBKR MCP Server",
@@ -384,6 +388,7 @@ class IBMCPServer:
         self.host = host
         self.port = port
         self.client_id = client_id
+        self.readonly = readonly
         self.connected = False
         self.news_provider_codes: str = ""
 
@@ -398,7 +403,7 @@ class IBMCPServer:
                 return
             try:
                 await self.ib.connectAsync(
-                    self.host, self.port, self.client_id, readonly=True
+                    self.host, self.port, self.client_id, readonly=self.readonly
                 )
                 self.connected = True
                 logger.info("Connected to IB at %s:%s", self.host, self.port)
@@ -1164,6 +1169,262 @@ class IBMCPServer:
             except Exception as e:  # pragma: no cover
                 return f"Error getting index quote: {e}"
 
+        # ─── Trading Tools (only functional when readonly=False) ───────
+
+        @self.server.tool(
+            description=(
+                "Place a buy or sell order. Requires readonly=false on startup. "
+                "Supports MKT, LMT, STOP, STP_LMT order types. "
+                "Returns the order ID and status."
+            )
+        )
+        async def place_order(
+            symbol: Annotated[str, "Stock symbol or conid"],
+            action: Annotated[str, "Order action: BUY or SELL"],
+            quantity: Annotated[float, "Number of shares/contracts"],
+            order_type: Annotated[
+                str, "Order type: MKT, LMT, STOP, STP_LMT"
+            ] = "MKT",
+            limit_price: Annotated[
+                float, "Limit price (required for LMT, STP_LMT)"
+            ] = 0.0,
+            stop_price: Annotated[
+                float, "Stop price (required for STOP, STP_LMT)"
+            ] = 0.0,
+            tif: Annotated[
+                str, "Time in force: DAY, GTC, IOC, GTD"
+            ] = "DAY",
+            sec_type: Annotated[str, "Security type (STK, OPT, FUT, etc.)"] = "STK",
+            exchange: str = "SMART",
+            currency: str = "USD",
+            account: Annotated[
+                str, "Account to route to (empty = default)"
+            ] = "",
+        ) -> str:
+            if self.readonly:
+                return (
+                    "Error: Server is running in read-only mode. "
+                    "Restart with IB_MCP_READONLY=false to enable trading."
+                )
+            await _ensure_connected()
+
+            # Validate params per order type
+            if order_type in ("LMT", "STP_LMT") and limit_price <= 0:
+                return f"Error: {order_type} order requires limit_price > 0"
+            if order_type in ("STOP", "STP_LMT") and stop_price <= 0:
+                return f"Error: {order_type} order requires stop_price > 0"
+
+            contract = _create_contract(symbol, sec_type, exchange, currency)
+            try:
+                qualified = _flatten_contracts(
+                    await self.ib.qualifyContractsAsync(contract)
+                )
+                if not qualified:
+                    return f"Error: No contract found for {symbol}"
+                c = qualified[0]
+
+                order_kwargs: dict[str, Any] = {
+                    "action": action.upper(),
+                    "totalQuantity": quantity,
+                    "orderType": order_type,
+                    "tif": tif,
+                }
+                if order_type in ("LMT", "STP_LMT"):
+                    order_kwargs["lmtPrice"] = limit_price
+                if order_type in ("STOP", "STP_LMT"):
+                    order_kwargs["auxPrice"] = stop_price
+                if account:
+                    order_kwargs["account"] = account
+
+                order = ib.Order(**order_kwargs)
+                trade = self.ib.placeOrder(c, order)
+
+                # Wait briefly for IB to acknowledge
+                await asyncio.sleep(1)
+
+                status = trade.orderStatus.status
+                order_id = trade.order.orderId
+                filled = trade.orderStatus.filled
+                remaining = trade.orderStatus.remaining
+                avg_fill_price = trade.orderStatus.avgFillPrice
+
+                lines = [
+                    f"# Order Placed: {action.upper()} {quantity} {symbol}",
+                    "",
+                    f"- **Order ID**: {order_id}",
+                    f"- **Status**: {status}",
+                    f"- **Type**: {order_type} ({tif})",
+                    f"- **Filled**: {filled}",
+                    f"- **Remaining**: {remaining}",
+                ]
+                if avg_fill_price > 0:
+                    lines.append(f"- **Avg Fill Price**: {avg_fill_price:.2f}")
+                if order_type in ("LMT", "STP_LMT"):
+                    lines.append(f"- **Limit Price**: {limit_price}")
+                if order_type in ("STOP", "STP_LMT"):
+                    lines.append(f"- **Stop Price**: {stop_price}")
+
+                return "\n".join(lines)
+            except Exception as e:
+                return f"Error placing order: {e}"
+
+        @self.server.tool(
+            description=(
+                "Cancel an open order by its order ID. "
+                "Requires readonly=false on startup."
+            )
+        )
+        async def cancel_order(
+            order_id: Annotated[int, "Order ID to cancel"],
+        ) -> str:
+            if self.readonly:
+                return (
+                    "Error: Server is running in read-only mode. "
+                    "Restart with IB_MCP_READONLY=false to enable trading."
+                )
+            await _ensure_connected()
+            try:
+                # Find the trade by orderId
+                trade = None
+                for t in self.ib.openTrades():
+                    if t.order.orderId == order_id:
+                        trade = t
+                        break
+
+                if trade is None:
+                    return f"No open order found with ID {order_id}"
+
+                self.ib.cancelOrder(trade.order)
+                await asyncio.sleep(0.5)
+
+                status = trade.orderStatus.status
+                return (
+                    f"# Order {order_id} Cancelled\n\n"
+                    f"- **Status**: {status}\n"
+                    f"- **Filled before cancel**: {trade.orderStatus.filled}\n"
+                    f"- **Remaining**: {trade.orderStatus.remaining}"
+                )
+            except Exception as e:
+                return f"Error cancelling order {order_id}: {e}"
+
+        @self.server.tool(
+            description=(
+                "Get all open orders for this client (or all clients if "
+                "all_clients=true). Shows order ID, symbol, action, quantity, "
+                "type, status, and filled quantity."
+            )
+        )
+        async def get_open_orders(
+            all_clients: Annotated[
+                bool,
+                "If true, fetch orders from all connected API clients "
+                "(not just this one)",
+            ] = False,
+        ) -> str:
+            await _ensure_connected()
+            try:
+                trades = await self.ib.reqAllOpenOrdersAsync() if all_clients else self.ib.openTrades()
+                if not trades:
+                    return "No open orders"
+
+                headers = [
+                    "OrderID",
+                    "Symbol",
+                    "Action",
+                    "Qty",
+                    "Type",
+                    "Status",
+                    "Filled",
+                    "Remaining",
+                ]
+                rows = []
+                for t in trades:
+                    c = t.contract
+                    s = t.orderStatus
+                    rows.append(
+                        [
+                            str(t.order.orderId),
+                            str(getattr(c, "symbol", "")),
+                            str(t.order.action),
+                            str(t.order.totalQuantity),
+                            str(t.order.orderType),
+                            str(s.status),
+                            str(s.filled),
+                            str(s.remaining),
+                        ]
+                    )
+
+                table = _format_markdown_table(headers, rows)
+                scope = "all clients" if all_clients else "this client"
+                return f"# Open Orders ({scope})\n\n{table}"
+            except Exception as e:
+                return f"Error getting open orders: {e}"
+
+        @self.server.tool(
+            description=(
+                "Get recent execution history (fills). Shows execution ID, "
+                "symbol, action, quantity, price, and time. "
+                "Optionally filter by symbol."
+            )
+        )
+        async def get_trades(
+            symbol: Annotated[
+                str, "Filter by symbol (empty = all recent executions)"
+            ] = "",
+            max_count: Annotated[
+                int, Field(description="Max results", ge=1, le=100)
+            ] = 20,
+        ) -> str:
+            await _ensure_connected()
+            try:
+                exec_filter = ib.ExecutionFilter()
+                if symbol:
+                    exec_filter = ib.ExecutionFilter(
+                        symbol=symbol, secType="STK"
+                    )
+                fills = await self.ib.reqExecutionsAsync(exec_filter)
+                if not fills:
+                    filter_desc = f" for {symbol}" if symbol else ""
+                    return f"No recent executions found{filter_desc}"
+
+                # Take most recent N
+                fills = fills[-max_count:] if len(fills) > max_count else fills
+
+                headers = [
+                    "ExecID",
+                    "Symbol",
+                    "Action",
+                    "Qty",
+                    "Price",
+                    "Time",
+                    "OrderID",
+                ]
+                rows = []
+                for f in fills:
+                    exec_detail = f.execution
+                    c = f.contract
+                    time_str = str(getattr(exec_detail, "time", ""))
+                    rows.append(
+                        [
+                            str(getattr(exec_detail, "execId", "")),
+                            str(getattr(c, "symbol", "")),
+                            str(getattr(exec_detail, "side", "")),
+                            str(getattr(exec_detail, "shares", "")),
+                            f"{getattr(exec_detail, 'price', 0):.2f}",
+                            time_str,
+                            str(getattr(exec_detail, "orderId", "")),
+                        ]
+                    )
+
+                table = _format_markdown_table(headers, rows)
+                filter_desc = f" for {symbol}" if symbol else ""
+                return (
+                    f"# Recent Executions{filter_desc} (last {len(fills)})\n\n"
+                    f"{table}"
+                )
+            except Exception as e:
+                return f"Error getting trades: {e}"
+
         # Keep references on self to make tools reachable in tests/REPL if needed
         self.lookup_contract = lookup_contract  # type: ignore[attr-defined]
         self.ticker_to_conid = ticker_to_conid  # type: ignore[attr-defined]
@@ -1177,6 +1438,10 @@ class IBMCPServer:
         self.get_option_chain = get_option_chain  # type: ignore[attr-defined]
         self.get_option_quotes = get_option_quotes  # type: ignore[attr-defined]
         self.get_index_quote = get_index_quote  # type: ignore[attr-defined]
+        self.place_order = place_order  # type: ignore[attr-defined]
+        self.cancel_order = cancel_order  # type: ignore[attr-defined]
+        self.get_open_orders = get_open_orders  # type: ignore[attr-defined]
+        self.get_trades = get_trades  # type: ignore[attr-defined]
 
     def run(
         self,
@@ -1242,6 +1507,14 @@ def main() -> None:
         default=int(os.getenv("IB_CLIENT_ID", "1")),
         help="Client ID (env: IB_CLIENT_ID)",
     )
+    parser.add_argument(
+        "--readonly",
+        action=argparse.BooleanOptionalAction,
+        default=os.getenv("IB_MCP_READONLY", "true").lower()
+        in ("true", "1", "yes"),
+        help="Read-only mode — no trading (env: IB_MCP_READONLY, default: true). "
+        "Use --no-readonly to enable trading tools.",
+    )
 
     # Transport configuration
     parser.add_argument(
@@ -1264,7 +1537,9 @@ def main() -> None:
 
     args = parser.parse_args()
 
-    server = IBMCPServer(args.host, args.port, args.client_id)
+    server = IBMCPServer(
+        args.host, args.port, args.client_id, readonly=args.readonly
+    )
     server.run(
         transport=args.transport, http_host=args.http_host, http_port=args.http_port
     )
