@@ -387,15 +387,30 @@ class IBMCPServer:
         self.connected = False
         self.news_provider_codes: str = ""
 
+        # Reset connection state when ib_async detects a disconnect,
+        # so _ensure_connected() will reconnect on the next tool call.
+        self.ib.disconnectedEvent += self._on_disconnect
+
         # Register FastMCP tools
         self._register_handlers()
+
+    def _on_disconnect(self, ib_instance: ib.IB) -> None:
+        """Reset connection flag so the next tool call triggers a reconnect."""
+        if self.connected:
+            logger.warning("IB connection lost — will reconnect on next request")
+        self.connected = False
 
     def _register_handlers(self) -> None:
         """Register tools using FastMCP decorators. Uses closures that capture self."""
 
         async def _ensure_connected() -> None:
-            if self.connected:
+            if self.connected and self.ib.isConnected():
                 return
+            # If flag is stale (disconnect fired but event missed) or socket
+            # dropped, reset everything and reconnect fresh.
+            if self.connected and not self.ib.isConnected():
+                logger.warning("Stale connected flag — socket already dead, reconnecting")
+                self.connected = False
             try:
                 await self.ib.connectAsync(
                     self.host, self.port, self.client_id, readonly=self.readonly
